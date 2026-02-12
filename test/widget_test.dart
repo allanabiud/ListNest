@@ -1,30 +1,67 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'package:list_nest/main.dart';
+import 'package:list_nest/models/list.dart';
+
+// Mock PathProviderPlatform for testing Hive
+class MockPathProviderPlatform extends Mock
+    with MockPlatformInterfaceMixin
+    implements PathProviderPlatform {
+  @override
+  Future<String?> getApplicationDocumentsPath() async {
+    return './test/temp_hive_dir';
+  }
+
+  // Implement all abstract methods from PathProviderPlatform
+  @override
+  Future<String?> getApplicationCachePath() => Future.value(null);
+
+  @override
+  Future<String?> getApplicationSupportPath() => Future.value(null);
+
+  @override
+  Future<String?> getDownloadsPath() => Future.value(null);
+
+  @override
+  Future<List<String>?> getExternalCachePaths() => Future.value(null);
+
+  @override
+  Future<String?> getExternalStoragePath() => Future.value(null);
+
+  @override
+  Future<List<String>?> getExternalStoragePaths({dynamic type}) =>
+      Future.value(null);
+
+  @override
+  Future<String?> getLibraryPath() => Future.value(null);
+
+  @override
+  Future<String?> getTemporaryPath() => Future.value(null);
+}
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  setUpAll(() async {
+    // Initialize Hive for tests with a temporary directory
+    PathProviderPlatform.instance = MockPathProviderPlatform();
+    await Hive.initFlutter();
+    Hive.registerAdapter(AppListAdapter());
+    Hive.registerAdapter(AppListItemAdapter());
+  });
+
+  tearDownAll(() async {
+    // Clean up Hive after all tests are done
+    await Hive.deleteFromDisk();
+  });
+
+  testWidgets('App starts without Hive errors', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const MyApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Expect to find the title of the app, indicating it started successfully
+    expect(find.text('ListNest'), findsOneWidget);
   });
 }

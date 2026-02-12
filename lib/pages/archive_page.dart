@@ -437,7 +437,7 @@ class _ArchivePageState extends State<ArchivePage> {
         layoutBuilder: (currentChild, previousChildren) {
           return Stack(
             alignment: Alignment.bottomRight,
-            children: [...previousChildren, ?currentChild],
+            children: [...previousChildren, if (currentChild != null) currentChild],
           );
         },
         child: _isSelectionMode

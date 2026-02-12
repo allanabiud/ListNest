@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import 'models/list.dart';
 import 'pages/archive_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/list_page.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+  Hive.registerAdapter(AppListAdapter());
+  Hive.registerAdapter(AppListItemAdapter());
   runApp(const MyApp());
 }
 
@@ -23,11 +25,16 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   ThemeMode _themeMode = ThemeMode.system;
   bool _useAmoledDark = false;
+  late Box _settingsBox;
 
   @override
   void initState() {
     super.initState();
-    _loadAppearancePrefs();
+    _openSettingsBox().then((_) => _loadAppearancePrefs());
+  }
+
+  Future<void> _openSettingsBox() async {
+    _settingsBox = await Hive.openBox('settings');
   }
 
   void _updateThemeMode(ThemeMode mode) {
@@ -45,9 +52,8 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _loadAppearancePrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final storedTheme = prefs.getInt('theme_mode');
-    final storedAmoled = prefs.getBool('use_amoled_dark');
+    final storedTheme = _settingsBox.get('theme_mode');
+    final storedAmoled = _settingsBox.get('use_amoled_dark');
     if (!mounted) {
       return;
     }
@@ -58,13 +64,11 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _saveThemeMode(ThemeMode mode) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('theme_mode', _themeModeToIndex(mode));
+    await _settingsBox.put('theme_mode', _themeModeToIndex(mode));
   }
 
   Future<void> _saveAmoledMode(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('use_amoled_dark', value);
+    await _settingsBox.put('use_amoled_dark', value);
   }
 
   ThemeMode _themeModeFromIndex(int? value) {
@@ -202,19 +206,26 @@ class _MyHomePageState extends State<MyHomePage> {
   final GlobalKey<ListPageState> _listPageKey = GlobalKey<ListPageState>();
   bool _isListSelectionMode = false;
   bool _useGridView = false;
-  static const String _listsKey = 'lists_active';
-  static const String _archivedListsKey = 'lists_archived';
+  late Box<bool> _layoutPrefsBox;
+  late Box<AppList> _listBox;
+  static const String _listsBoxName = 'lists';
 
   @override
   void initState() {
     super.initState();
-    _loadLayoutPrefs();
-    _loadListPrefs();
+    _openHiveBoxes().then((_) {
+      _loadLayoutPrefs();
+      _loadListPrefs();
+    });
+  }
+
+  Future<void> _openHiveBoxes() async {
+    _layoutPrefsBox = await Hive.openBox<bool>('layout_prefs');
+    _listBox = await Hive.openBox<AppList>(_listsBoxName);
   }
 
   Future<void> _loadLayoutPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final storedGrid = prefs.getBool('use_grid_view');
+    final storedGrid = _layoutPrefsBox.get('use_grid_view');
     if (!mounted) {
       return;
     }
@@ -224,49 +235,44 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _saveGridView(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('use_grid_view', value);
+    await _layoutPrefsBox.put('use_grid_view', value);
   }
 
   Future<void> _loadListPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final activeJson = prefs.getString(_listsKey);
-    final archivedJson = prefs.getString(_archivedListsKey);
-    final active = _decodeLists(activeJson);
-    final archived = _decodeLists(archivedJson);
+    _activeLists.clear();
+    _archivedLists.clear();
+
+    for (var i = 0; i < _listBox.length; i++) {
+      final list = _listBox.getAt(i);
+      if (list != null) {
+        if (list.archivedAt == null) {
+          _activeLists.add(list);
+        } else {
+          _archivedLists.add(list);
+        }
+      }
+    }
+
     if (!mounted) {
       return;
     }
-    setState(() {
-      _activeLists
-        ..clear()
-        ..addAll(active);
-      _archivedLists
-        ..clear()
-        ..addAll(archived);
-    });
+    setState(() {});
     _listPageKey.currentState?.resortLists();
   }
 
   Future<void> _persistLists() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_listsKey, _encodeLists(_activeLists));
-    await prefs.setString(_archivedListsKey, _encodeLists(_archivedLists));
-  }
-
-  List<AppList> _decodeLists(String? encoded) {
-    if (encoded == null || encoded.isEmpty) {
-      return [];
+    final Map<String, AppList> allLists = {};
+    for (final list in _activeLists) {
+      allLists[list.id] = list;
     }
-    final decoded = jsonDecode(encoded) as List<dynamic>;
-    return decoded
-        .map((item) => AppList.fromJson(item as Map<String, dynamic>))
-        .toList();
-  }
+    for (final list in _archivedLists) {
+      allLists[list.id] = list;
+    }
 
-  String _encodeLists(List<AppList> lists) {
-    final encoded = lists.map((list) => list.toJson()).toList();
-    return jsonEncode(encoded);
+    await _listBox.clear();
+    for (final listId in allLists.keys) {
+      await _listBox.put(listId, allLists[listId]!);
+    }
   }
 
   void _displayDialog() {
@@ -437,7 +443,10 @@ class _MyHomePageState extends State<MyHomePage> {
         layoutBuilder: (currentChild, previousChildren) {
           return Stack(
             alignment: Alignment.bottomRight,
-            children: [...previousChildren, ?currentChild],
+            children: [
+              ...previousChildren,
+              if (currentChild != null) currentChild,
+            ],
           );
         },
         child: _isListSelectionMode

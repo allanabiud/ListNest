@@ -140,6 +140,7 @@ class ListPageState extends State<ListPage> {
     });
   }
 
+
   void _sortLists() {
     widget.lists.sort((a, b) {
       if (a.isPinned != b.isPinned) {
@@ -491,7 +492,7 @@ class ListPageState extends State<ListPage> {
           SliverPadding(
             padding: listPadding,
             sliver: SliverAnimatedList(
-              key: _listKey,
+              key: ValueKey(widget.lists.length), // Add ValueKey here
               initialItemCount: widget.lists.length,
               itemBuilder: (context, index, animation) {
                 final list = widget.lists[index];
@@ -516,6 +517,7 @@ class ListPageState extends State<ListPage> {
           SliverPadding(
             padding: listPadding,
             sliver: SliverGrid(
+              key: ValueKey(widget.lists.length), // Add ValueKey here
               delegate: SliverChildBuilderDelegate((context, index) {
                 final list = widget.lists[index];
                 final isSelected = _selectedLists.contains(list);
